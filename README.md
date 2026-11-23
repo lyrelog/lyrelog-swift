@@ -1,4 +1,17 @@
-# Lyrelog for Swift
+<p align="center">
+  <a href="https://lyrelog.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://lyrelog.com/readme/swift-dark.png">
+      <img alt="Lyrelog for Swift" src="https://lyrelog.com/readme/swift-light.png" width="600">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://docs.lyrelog.com/sdks/swift"><b>Documentation</b></a> ·
+  <a href="https://docs.lyrelog.com/quickstart">Quickstart</a> ·
+  <a href="https://lyrelog.com">lyrelog.com</a>
+</p>
 
 Structured logs from your iOS, macOS, tvOS, watchOS or visionOS app to
 [Lyrelog](https://lyrelog.com), a hosted log service. No dependencies.
