@@ -20,7 +20,7 @@ import os
 public enum Lyrelog {
     /// This SDK's version (the git tag). Sent as `resource.sdk` and the User-Agent; the README's
     /// install line uses the same number (a test keeps them in step).
-    public static let version = "0.9.0"
+    public static let version = "1.0.0"
 
     private struct Runtime: Sendable {
         let engine: Engine

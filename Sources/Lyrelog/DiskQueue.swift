@@ -23,6 +23,24 @@ protocol QueueFileHandle: AnyObject {
 
 extension FileHandle: QueueFileHandle {}
 
+/// The SDK's own serial queue for blocking file work. An actor runs on Swift's shared
+/// cooperative pool (a thread per core, shared with the app's tasks), where a blocking call
+/// holds a thread the app's async code needs; the queue's jobs run here instead.
+final class DiskExecutor: SerialExecutor {
+    static let label = "com.lyrelog.disk"
+    static let shared = DiskExecutor()
+
+    let queue = DispatchQueue(label: DiskExecutor.label, qos: .utility)
+
+    func enqueue(_ job: UnownedJob) {
+        queue.async { job.runSynchronously(on: self.asUnownedSerialExecutor()) }
+    }
+
+    func asUnownedSerialExecutor() -> UnownedSerialExecutor {
+        UnownedSerialExecutor(ordinary: self)
+    }
+}
+
 actor DiskQueue {
     enum Area: String, CaseIterable, Sendable {
         case ready, pending
@@ -55,6 +73,12 @@ actor DiskQueue {
     private(set) var droppedEvents = 0
     /// Lost and not yet reported in a `lyrelog_events_dropped` note.
     private var unreportedDrops = 0
+    /// The folders are made on the first write, on the disk queue: `start` touches no disk.
+    private var foldersMade = false
+
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        DiskExecutor.shared.asUnownedSerialExecutor()
+    }
 
     init(root: URL, limits: Limits, now: @escaping @Sendable () -> Date = { Date() },
          openHandle: @escaping @Sendable (URL) throws -> any QueueFileHandle = { try FileHandle(forWritingTo: $0) }) {
@@ -62,10 +86,20 @@ actor DiskQueue {
         self.limits = limits
         self.now = now
         self.openHandle = openHandle
+    }
+
+    private func makeFolders() {
+        guard !foldersMade else { return }
         for area in Area.allCases {
-            try? FileManager.default.createDirectory(at: root.appendingPathComponent(area.rawValue),
-                                                     withIntermediateDirectories: true)
+            try? fileManager.createDirectory(at: root.appendingPathComponent(area.rawValue),
+                                             withIntermediateDirectories: true)
         }
+        foldersMade = true
+    }
+
+    /// Runs other blocking file work (the install id) on the disk queue.
+    func onDisk<T: Sendable>(_ work: @Sendable () -> T) -> T {
+        work()
     }
 
     func append(_ line: Data, to area: Area) {
@@ -168,7 +202,9 @@ actor DiskQueue {
     /// Consent granted: what was kept while pending becomes sendable.
     func promotePending() {
         if open?.area == .pending { seal() }
-        for file in files(in: .pending) {
+        let pending = files(in: .pending)
+        if !pending.isEmpty { makeFolders() }
+        for file in pending {
             let target = root.appendingPathComponent(Area.ready.rawValue).appendingPathComponent(file.lastPathComponent)
             try? fileManager.moveItem(at: file, to: target)
         }
@@ -207,6 +243,7 @@ actor DiskQueue {
     // MARK: - Files
 
     private func createFile(in area: Area) throws -> OpenFile {
+        makeFolders()
         let millis = UInt64(now().timeIntervalSince1970 * 1000)
         sequence += 1
         let name = String(format: "%015llu-%012llu-", millis, sequence) + UUID().uuidString + ".ndjson"

@@ -130,9 +130,9 @@ struct ReleaseTests {
         #expect(readme.contains("https://github.com/lyrelog/lyrelog-swift"))
     }
 
-    @Test func theVersionIs090() {
-        #expect(Lyrelog.version == "0.9.0")
-        #expect(DeviceContext.sdkVersion == "lyrelog-swift/0.9.0")
+    @Test func theVersionIs100() {
+        #expect(Lyrelog.version == "1.0.0")
+        #expect(DeviceContext.sdkVersion == "lyrelog-swift/1.0.0")
     }
 }
 

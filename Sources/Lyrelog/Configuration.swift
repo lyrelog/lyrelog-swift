@@ -85,7 +85,7 @@ extension Lyrelog {
         /// token until one exists. On by default; `false` turns it off.
         public var appAttest: Bool
         /// For Lyrelog's own Flutter and React Native SDKs only, so it is SPI: their name and
-        /// version ("lyrelog-flutter/0.9.0"), sent before this SDK's in `resource.sdk` so the
+        /// version ("lyrelog-flutter/1.0.0"), sent before this SDK's in `resource.sdk` so the
         /// dashboard can tell where events came from. A wrapper writes `@_spi(Wrapper) import
         /// Lyrelog` and sets it after making the configuration; an app never sees it.
         @_spi(Wrapper) public var wrapper: String?

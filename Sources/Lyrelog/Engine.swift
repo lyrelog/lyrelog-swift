@@ -96,7 +96,7 @@ final class Engine: Sendable {
                     await attestation?.prepare()
                 case .denied:
                     await queue.removeAll()
-                    identity.forget()
+                    await queue.onDisk { identity.forget() }
                     await attestation?.forget()
                 case .pending: break
                 }
@@ -108,7 +108,7 @@ final class Engine: Sendable {
         let writer = Task {
             for await _ in wakeups {
                 while !Task.isCancelled, let event = progress.takeEvent() {
-                if let installID = identity.current(unless: consent) {
+                if let installID = await identity.resolve(unless: consent, on: queue) {
                     let wire = WireEvent(event, installID: installID, resource: resource.value,
                                          redaction: redaction)
                     if let line = try? wire.encodedLine() {
@@ -245,7 +245,7 @@ struct Rounds: Sendable {
                                 attributes: ["count": .int(total), "in_memory": .int(memory), "too_large": .int(tooLarge),
                                              "on_disk": .int(disk), "max_queue": .int(intakeCapacity)],
                                 payload: nil, userID: nil, sessionID: "")
-        guard let installID = identity.current(unless: consent),
+        guard let installID = await identity.resolve(unless: consent, on: queue),
               let line = try? WireEvent(note, installID: installID, resource: resource.value).encodedLine() else { return }
         await queue.appendEvent(line, consent: consent)
     }

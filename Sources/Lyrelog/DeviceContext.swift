@@ -4,7 +4,7 @@ enum DeviceContext {
     static let sdkVersion = "lyrelog-swift/\(Lyrelog.version)"
 
     /// `resource.sdk`: this SDK, after the wrapper's name when one sends through it
-    /// ("lyrelog-flutter/0.9.0 lyrelog-swift/0.9.0").
+    /// ("lyrelog-flutter/1.0.0 lyrelog-swift/1.0.0").
     static func sdk(wrapper: String?) -> String {
         let name = (wrapper ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             .filter { !$0.isWhitespace && !$0.isNewline }
@@ -114,6 +114,13 @@ final class InstallIdentity: @unchecked Sendable {
             id = made
             return made
         }
+    }
+
+    /// `current(unless:)`, reading or making the file on the disk queue the first time.
+    func resolve(unless consent: ConsentGate, on queue: DiskQueue) async -> String? {
+        let cached = lock.withLock { consent.value == .denied ? String?.none : id }
+        if let cached { return cached }
+        return await queue.onDisk { self.current(unless: consent) }
     }
 
     func forget() {

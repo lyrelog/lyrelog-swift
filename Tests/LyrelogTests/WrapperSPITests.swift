@@ -8,7 +8,7 @@ struct WrapperSPITests {
     @Test func aWrapperSetsItsNameThroughTheSPI() {
         var configuration = Lyrelog.Configuration(apiKey: "lyr_ing_x")
         #expect(configuration.wrapper == nil)
-        configuration.wrapper = "lyrelog-flutter/0.9.0"
-        #expect(configuration.wrapper == "lyrelog-flutter/0.9.0")
+        configuration.wrapper = "lyrelog-flutter/1.0.0"
+        #expect(configuration.wrapper == "lyrelog-flutter/1.0.0")
     }
 }
