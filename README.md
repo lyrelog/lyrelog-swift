@@ -14,7 +14,7 @@
 </p>
 
 Structured logs from your iOS, macOS, tvOS, watchOS or visionOS app to
-[Lyrelog](https://lyrelog.com), a hosted log service. No dependencies.
+[Lyrelog](https://lyrelog.com/platforms/swift), a hosted log service. No dependencies.
 
 ## Install
 
