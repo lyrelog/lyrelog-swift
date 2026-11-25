@@ -41,7 +41,7 @@ final class DiagnosticsReceiver: NSObject, MXMetricManagerSubscriber, @unchecked
     func receive(_ payloads: [Data]) {
         let binary = Bundle.main.object(forInfoDictionaryKey: "CFBundleExecutable") as? String
         for data in payloads {
-            for report in DiagnosticReport.events(from: data, appBinary: binary) {
+            for report in DiagnosticReport.events(from: data, appBinary: binary, crashesInProcess: true) {
                 Lyrelog.record(report.level, report.message, category: "diagnostics", attrs: report.attributes,
                                payload: report.payload, at: report.timestamp, id: report.id)
             }
@@ -65,7 +65,10 @@ struct DiagnosticReport: Equatable {
     /// by the server at its arrival time, so it would become a new event on every launch.
     static let maxAge: TimeInterval = 7 * 86_400
 
-    static func events(from json: Data, appBinary: String? = nil, now: Date = Date()) -> [DiagnosticReport] {
+    /// With `crashesInProcess` (the crash reporter is on: CrashReporter.swift), MetricKit's crashes
+    /// are left out except those the app's own process can't catch (SIGKILL: the watchdog, the
+    /// system ending the app), so a crash isn't reported twice.
+    static func events(from json: Data, appBinary: String? = nil, crashesInProcess: Bool = false, now: Date = Date()) -> [DiagnosticReport] {
         guard let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return [] }
         let when = date(root["timeStampBegin"]) ?? date(root["timeStampEnd"]) ?? now
         guard now.timeIntervalSince(when) <= maxAge else { return [] }
@@ -80,6 +83,7 @@ struct DiagnosticReport: Equatable {
         for kind in kinds {
             for (index, item) in ((root[kind.key] as? [[String: Any]]) ?? []).enumerated() {
                 let meta = item["diagnosticMetaData"] as? [String: Any] ?? [:]
+                if crashesInProcess, kind.key == "crashDiagnostics", (meta["signal"] as? Int) != 9 { continue }
                 var attrs: [String: LogValue] = [:]
                 if let v = meta["appVersion"] as? String { attrs["version_at_report"] = .string(v) }
                 if let v = meta["appBuildVersion"] as? String { attrs["build_at_report"] = .string(v) }

@@ -20,7 +20,7 @@ import os
 public enum Lyrelog {
     /// This SDK's version (the git tag). Sent as `resource.sdk` and the User-Agent; the README's
     /// install line uses the same number (a test keeps them in step).
-    public static let version = "1.0.0"
+    public static let version = "1.1.0"
 
     private struct Runtime: Sendable {
         let engine: Engine
@@ -102,7 +102,10 @@ public enum Lyrelog {
         }
         if let later { engine.setConsent(later) }
         Lifecycle.install(engine)
-        if configuration.captureDiagnostics { Diagnostics.install() }
+        if configuration.captureDiagnostics {
+            CrashReporter.install()
+            Diagnostics.install()
+        }
     }
 
     /// Send what was logged (waiting at most 2 seconds for it), then stop and forget the

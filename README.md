@@ -21,7 +21,7 @@ Structured logs from your iOS, macOS, tvOS, watchOS or visionOS app to
 Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/lyrelog/lyrelog-swift", from: "1.0.0")
+.package(url: "https://github.com/lyrelog/lyrelog-swift", from: "1.1.0")
 ```
 
 and add the product `Lyrelog` to your target (in Xcode: File > Add Package Dependencies).
@@ -76,13 +76,21 @@ event every Lyrelog SDK sends: level `error`, `error_type` and `error_message` a
 payload with the description, debug description, `NSError` domain and code and the underlying
 error.
 
-**Crashes and hangs** come from MetricKit (iOS, macOS, visionOS), on by default
-(`captureDiagnostics`). The system hands them over on a later launch, so each becomes an event at
-the time it happened, without a session: `app_crashed` (critical: exception, signal, termination
-reason, the version and device it happened on, the top frame of your app and up to 60 frames in
-the payload), `app_hung` (error, how long), `cpu_overuse`, `disk_write_overuse` and
-`slow_launch` (warnings), all in the `diagnostics` area. A report delivered twice is stored once; one more than 7 days old is skipped.
-Frames are offsets into each binary, not symbols: symbolicate with the dSYM when you need names.
+**Crashes** are caught in the app's own process, on by default (`captureDiagnostics`): the moment
+the app crashes, the crashed thread's frames are written to disk, and on the next launch they
+become an `app_crashed` event (critical) at the time it happened, without a session: exception and
+signal, a Swift runtime failure's message (`error_message`), an uncaught Objective-C exception's
+name and the frames it was thrown from, the top frame of your app, and up to 60 frames in the
+payload. Other crash reporters (Sentry, Crashlytics) keep working: the handlers installed before
+Lyrelog's are called after it.
+
+**Hangs and the rest** come from MetricKit (iOS, macOS, visionOS), which the system hands over on a
+later launch: `app_hung` (error, how long), `cpu_overuse`, `disk_write_overuse` and `slow_launch`
+(warnings), and crashes the app itself can't catch (the system ending it, `SIGKILL`). All are in
+the `diagnostics` area; a report delivered twice is stored once, one more than 7 days old is skipped.
+
+Frames are offsets into each binary: upload each build's dSYMs (`lyrelog symbols upload`) and
+Lyrelog shows them as functions, files and lines.
 
 **Screens**: say where the person is and every event that follows carries it as `screen`
 (`attachScreen`), plus a `screen_viewed` event with the screen before and the time spent on it.

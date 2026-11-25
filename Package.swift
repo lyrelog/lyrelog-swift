@@ -11,7 +11,9 @@ let package = Package(
     targets: [
         // The privacy manifest ships with the library, so Xcode merges it into the app's
         // privacy report.
-        .target(name: "Lyrelog", path: "Sources/Lyrelog", resources: [.copy("PrivacyInfo.xcprivacy")]),
+        .target(name: "Lyrelog", dependencies: ["LyrelogCrashC"], path: "Sources/Lyrelog", resources: [.copy("PrivacyInfo.xcprivacy")]),
+        // The crash reporter's signal handler, in C (async-signal-safe); part of the library.
+        .target(name: "LyrelogCrashC", path: "Sources/LyrelogCrashC"),
         .testTarget(name: "LyrelogTests", dependencies: ["Lyrelog"], path: "Tests/LyrelogTests"),
     ],
     swiftLanguageModes: [.v6]

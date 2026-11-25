@@ -56,8 +56,9 @@ extension Lyrelog {
         /// the system may purge it when the device runs out of space (events waiting there are
         /// then lost, never the app's own data).
         public var storageDirectory: URL?
-        /// Report crashes, hangs and CPU or disk-write overuse from MetricKit (iOS, macOS, visionOS).
-        /// iOS hands them over on the next launch; they keep the time they happened.
+        /// Report crashes, caught in the app's own process and sent on the next launch, and from
+        /// MetricKit (iOS, macOS, visionOS) what it alone sees: hangs, CPU or disk-write overuse,
+        /// and the system ending the app. They keep the time they happened.
         public var captureDiagnostics: Bool
         /// Tag every event with the screen set by `Lyrelog.screen(_:)` (`screen` attribute).
         public var attachScreen: Bool
