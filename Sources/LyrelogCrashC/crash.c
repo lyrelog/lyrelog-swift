@@ -43,6 +43,7 @@ static int taken[SIGNAL_COUNT];
 // Where libswiftCore keeps the message of a fatalError ("Index out of range"): its
 // __DATA,__crash_info section, found when the image loads (Sentry and Crashlytics read it too).
 static _Atomic uintptr_t swift_crash_info = 0;
+static _Atomic int64_t reported_until = 0; // a crash before this time was already reported
 static uint64_t exception_stack[128];
 static volatile int exception_stack_count = 0;
 static char note[1024];
@@ -219,6 +220,7 @@ static void handler(int signal, siginfo_t *info, void *context) {
         return;
     }
     int fd = report_fd;
+    if ((int64_t)time(NULL) <= atomic_load(&reported_until)) fd = -1; // already reported: write nothing
     if (fd >= 0) {
         uint64_t pc = 0, lr = 0, fp = 0;
         ucontext_t *uc = (ucontext_t *)context;
@@ -290,6 +292,10 @@ void lyrelog_crash_note_stack(const unsigned long long *addresses, int count) {
     if (count > (int)(sizeof(exception_stack) / sizeof(exception_stack[0]))) count = (int)(sizeof(exception_stack) / sizeof(exception_stack[0]));
     for (int i = 0; i < count; i++) exception_stack[i] = strip(addresses[i]);
     exception_stack_count = count;
+}
+
+void lyrelog_crash_already_reported(int seconds) {
+    atomic_store(&reported_until, (int64_t)time(NULL) + seconds);
 }
 
 void lyrelog_crash_alternate_stack(void) {

@@ -155,3 +155,13 @@ extension DiagnosticReport {
         UInt64(text.hasPrefix("0x") ? String(text.dropFirst(2)) : text, radix: 16)
     }
 }
+
+extension Lyrelog {
+    /// For wrapper SDKs: the crash about to happen (within 10 seconds) was already reported, as
+    /// React Native's fatal JavaScript error is before React Native aborts the app, so the crash
+    /// reporter doesn't report it again. Other crash reporters still see it.
+    @_spi(Wrapper) public static func crashAlreadyReported() {
+        lyrelog_crash_already_reported(10)
+    }
+}
+

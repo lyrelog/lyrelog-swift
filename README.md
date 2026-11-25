@@ -21,7 +21,7 @@ Structured logs from your iOS, macOS, tvOS, watchOS or visionOS app to
 Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/lyrelog/lyrelog-swift", from: "1.1.0")
+.package(url: "https://github.com/lyrelog/lyrelog-swift", from: "1.1.1")
 ```
 
 and add the product `Lyrelog` to your target (in Xcode: File > Add Package Dependencies).

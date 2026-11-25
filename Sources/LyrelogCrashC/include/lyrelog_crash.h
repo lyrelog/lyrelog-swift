@@ -19,6 +19,11 @@ void lyrelog_crash_note(const char *text);
 /// instead of the abort. Called from normal code.
 void lyrelog_crash_note_stack(const unsigned long long *addresses, int count);
 
+/// The crash that follows within `seconds` was already reported another way (a wrapper SDK's
+/// fatal JavaScript error, sent before React Native aborts): the handler writes nothing for it,
+/// and still hands the signal on.
+void lyrelog_crash_already_reported(int seconds);
+
 /// Gives the calling thread an alternate signal stack, so a stack overflow on it is reported.
 /// Called on the main thread (sigaltstack is per thread; most overflows happen there).
 void lyrelog_crash_alternate_stack(void);

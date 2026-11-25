@@ -131,8 +131,8 @@ struct ReleaseTests {
     }
 
     @Test func theVersionIs100() {
-        #expect(Lyrelog.version == "1.1.0")
-        #expect(DeviceContext.sdkVersion == "lyrelog-swift/1.1.0")
+        #expect(Lyrelog.version == "1.1.1")
+        #expect(DeviceContext.sdkVersion == "lyrelog-swift/1.1.1")
     }
 }
 
