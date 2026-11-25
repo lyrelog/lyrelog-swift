@@ -21,7 +21,7 @@ Structured logs from your iOS, macOS, tvOS, watchOS or visionOS app to
 Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/lyrelog/lyrelog-swift", from: "1.1.1")
+.package(url: "https://github.com/lyrelog/lyrelog-swift", from: "1.1.2")
 ```
 
 and add the product `Lyrelog` to your target (in Xcode: File > Add Package Dependencies).
@@ -82,11 +82,13 @@ become an `app_crashed` event (critical) at the time it happened, without a sess
 signal, a Swift runtime failure's message (`error_message`), an uncaught Objective-C exception's
 name and the frames it was thrown from, the top frame of your app, and up to 60 frames in the
 payload. Other crash reporters (Sentry, Crashlytics) keep working: the handlers installed before
-Lyrelog's are called after it.
+Lyrelog's are called after it, with the crash as it happened. On watchOS and tvOS a stack
+overflow isn't caught (they have no alternate signal stack); every other crash is.
 
 **Hangs and the rest** come from MetricKit (iOS, macOS, visionOS), which the system hands over on a
 later launch: `app_hung` (error, how long), `cpu_overuse`, `disk_write_overuse` and `slow_launch`
-(warnings), and crashes the app itself can't catch (the system ending it, `SIGKILL`). All are in
+(warnings), and the crashes the app's own process didn't catch (the system ending it, `SIGKILL`,
+or a crash before Lyrelog started). All are in
 the `diagnostics` area; a report delivered twice is stored once, one more than 7 days old is skipped.
 
 Frames are offsets into each binary: upload each build's dSYMs (`lyrelog symbols upload`) and

@@ -40,10 +40,14 @@ final class DiagnosticsReceiver: NSObject, MXMetricManagerSubscriber, @unchecked
 
     func receive(_ payloads: [Data]) {
         let binary = Bundle.main.object(forInfoDictionaryKey: "CFBundleExecutable") as? String
-        for data in payloads {
-            for report in DiagnosticReport.events(from: data, appBinary: binary, crashesInProcess: true) {
-                Lyrelog.record(report.level, report.message, category: "diagnostics", attrs: report.attributes,
-                               payload: report.payload, at: report.timestamp, id: report.id)
+        // On the disk's queue, after the crash reporter has read what the last launch left.
+        DiskExecutor.shared.queue.async {
+            let caught = InProcessCrash.read(CrashReporter.caughtFile)
+            for data in payloads {
+                for report in DiagnosticReport.events(from: data, appBinary: binary, inProcess: caught) {
+                    Lyrelog.record(report.level, report.message, category: "diagnostics", attrs: report.attributes,
+                                   payload: report.payload, at: report.timestamp, id: report.id)
+                }
             }
         }
     }
@@ -65,12 +69,13 @@ struct DiagnosticReport: Equatable {
     /// by the server at its arrival time, so it would become a new event on every launch.
     static let maxAge: TimeInterval = 7 * 86_400
 
-    /// With `crashesInProcess` (the crash reporter is on: CrashReporter.swift), MetricKit's crashes
-    /// are left out except those the app's own process can't catch (SIGKILL: the watchdog, the
-    /// system ending the app), so a crash isn't reported twice.
-    static func events(from json: Data, appBinary: String? = nil, crashesInProcess: Bool = false, now: Date = Date()) -> [DiagnosticReport] {
+    /// `inProcess` are the crashes the crash reporter caught (CrashReporter.swift): MetricKit's
+    /// report of one of them is left out, so a crash isn't reported twice. SIGKILL is never one
+    /// (the process can't catch it: the watchdog, the system ending the app).
+    static func events(from json: Data, appBinary: String? = nil, inProcess: [InProcessCrash] = [], now: Date = Date()) -> [DiagnosticReport] {
         guard let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return [] }
         let when = date(root["timeStampBegin"]) ?? date(root["timeStampEnd"]) ?? now
+        let until = date(root["timeStampEnd"]) ?? when
         guard now.timeIntervalSince(when) <= maxAge else { return [] }
         var out: [DiagnosticReport] = []
         let kinds: [(key: String, level: LogLevel, message: String)] = [
@@ -83,7 +88,10 @@ struct DiagnosticReport: Equatable {
         for kind in kinds {
             for (index, item) in ((root[kind.key] as? [[String: Any]]) ?? []).enumerated() {
                 let meta = item["diagnosticMetaData"] as? [String: Any] ?? [:]
-                if crashesInProcess, kind.key == "crashDiagnostics", (meta["signal"] as? Int) != 9 { continue }
+                if kind.key == "crashDiagnostics", let signal = meta["signal"] as? Int, signal != 9,
+                   inProcess.contains(where: { $0.signal == signal && $0.time >= when.addingTimeInterval(-InProcessCrash.window) && $0.time <= until.addingTimeInterval(InProcessCrash.window) }) {
+                    continue
+                }
                 var attrs: [String: LogValue] = [:]
                 if let v = meta["appVersion"] as? String { attrs["version_at_report"] = .string(v) }
                 if let v = meta["appBuildVersion"] as? String { attrs["build_at_report"] = .string(v) }

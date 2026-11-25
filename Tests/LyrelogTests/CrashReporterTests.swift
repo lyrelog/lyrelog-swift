@@ -53,13 +53,46 @@ struct CrashReporterTests {
         #expect(DiagnosticReport.crash(report: inProcessReport, images: inProcessImages, appBinary: nil, now: now.addingTimeInterval(8 * 86_400)) == nil)
     }
 
-    /// With the crash reporter on, MetricKit's crashes aren't reported twice: only what the
-    /// process itself can't catch (SIGKILL) still comes from it, with hangs and the rest.
-    @Test func metricKitsCrashesAreLeftToTheCrashReporter() {
-        let reports = DiagnosticReport.events(from: crashPayload, appBinary: "Tilefall", crashesInProcess: true, now: crashPayloadTime)
+    /// A crash the crash reporter caught isn't reported again by MetricKit; one it didn't catch
+    /// (it couldn't install, the app crashed before it did, another signal) still comes from
+    /// MetricKit, and so does what the process can't catch (SIGKILL).
+    @Test func metricKitsCrashesAreLeftToTheCrashReporterWhenItCaughtThem() {
+        let caught = [InProcessCrash(time: crashPayloadTime.addingTimeInterval(-3600), signal: 11)]
+        let reports = DiagnosticReport.events(from: crashPayload, appBinary: "Tilefall", inProcess: caught, now: crashPayloadTime)
         #expect(reports.map(\.message) == ["app_hung", "disk_write_overuse"])
-        let killed = Data(String(decoding: crashPayload, as: UTF8.self).replacingOccurrences(of: "\"signal\": 11", with: "\"signal\": 9").utf8)
-        #expect(DiagnosticReport.events(from: killed, appBinary: "Tilefall", crashesInProcess: true, now: crashPayloadTime).map(\.message)
+        #expect(DiagnosticReport.events(from: crashPayload, appBinary: "Tilefall", inProcess: [], now: crashPayloadTime).map(\.message)
             == ["app_crashed", "app_hung", "disk_write_overuse"])
+        let otherSignal = [InProcessCrash(time: crashPayloadTime.addingTimeInterval(-3600), signal: 6)]
+        #expect(DiagnosticReport.events(from: crashPayload, appBinary: "Tilefall", inProcess: otherSignal, now: crashPayloadTime).map(\.message)
+            == ["app_crashed", "app_hung", "disk_write_overuse"])
+        let killed = Data(String(decoding: crashPayload, as: UTF8.self).replacingOccurrences(of: "\"signal\": 11", with: "\"signal\": 9").utf8)
+        #expect(DiagnosticReport.events(from: killed, appBinary: "Tilefall", inProcess: [InProcessCrash(time: crashPayloadTime.addingTimeInterval(-3600), signal: 9)],
+                                        now: crashPayloadTime).map(\.message) == ["app_crashed", "app_hung", "disk_write_overuse"])
+    }
+
+    @Test func theCrashesCaughtAreRemembered() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("caught")
+        let now = Date(timeIntervalSince1970: 1_795_614_500)
+        InProcessCrash.remember(InProcessCrash(time: now.addingTimeInterval(-60), signal: 11), in: file, now: now)
+        InProcessCrash.remember(InProcessCrash(time: now.addingTimeInterval(-9 * 86_400), signal: 6), in: file, now: now)
+        #expect(InProcessCrash.read(file, now: now) == [InProcessCrash(time: now.addingTimeInterval(-60), signal: 11)])
+    }
+}
+
+/// A handler of another crash reporter's, installed before Lyrelog's.
+private let otherReporter: @convention(c) (NSException) -> Void = { _ in }
+
+struct ExceptionNoteTests {
+    /// `start` after `stop` installs again: the handler before Lyrelog's stays the one it calls,
+    /// never Lyrelog's own (which would call itself until the stack ran out).
+    @Test func installingTwiceKeepsTheHandlerBefore() {
+        NSSetUncaughtExceptionHandler(otherReporter)
+        ExceptionNote.install()
+        ExceptionNote.install()
+        let previous = ExceptionNote.previous.map { unsafeBitCast($0, to: UnsafeRawPointer.self) }
+        #expect(previous == unsafeBitCast(otherReporter, to: UnsafeRawPointer.self))
     }
 }

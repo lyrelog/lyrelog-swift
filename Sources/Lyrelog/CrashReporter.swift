@@ -11,6 +11,11 @@ import LyrelogCrashC
 /// Other crash reporters (Sentry, Crashlytics) keep working: the handlers before Lyrelog's are
 /// called after it, and those installed later call Lyrelog's.
 enum CrashReporter {
+    /// The crashes it caught, for MetricKit's reports of the same ones to be left out.
+    static var caughtFile: URL {
+        Engine.supportDirectory().appendingPathComponent("crash", isDirectory: true).appendingPathComponent("caught")
+    }
+
     static func install() {
         DiskExecutor.shared.queue.async {
             let folder = Engine.supportDirectory().appendingPathComponent("crash", isDirectory: true)
@@ -24,10 +29,13 @@ enum CrashReporter {
                 if let crash = DiagnosticReport.crash(report: text, images: loaded, appBinary: binary) {
                     Lyrelog.record(crash.level, crash.message, category: "diagnostics", attrs: crash.attributes,
                                    payload: crash.payload, at: crash.timestamp, id: crash.id)
+                    if let signal = DiagnosticReport.signal(inReport: text) {
+                        InProcessCrash.remember(InProcessCrash(time: crash.timestamp, signal: signal), in: caughtFile)
+                    }
                 }
             }
             guard lyrelog_crash_install(report.path, images.path) else {
-                SDKLog.say("crash reports: couldn't open \(folder.path); crashes come from MetricKit only")
+                SDKLog.say("crash reports: couldn't open \(folder.path); crashes come from MetricKit")
                 return
             }
             ExceptionNote.install()
@@ -43,16 +51,22 @@ enum CrashReporter {
 enum ExceptionNote {
     nonisolated(unsafe) static var previous: (@convention(c) (NSException) -> Void)?
 
+    static let handler: @convention(c) (NSException) -> Void = { exception in
+        let text = "\(exception.name.rawValue): \(exception.reason ?? "")"
+        text.withCString { lyrelog_crash_note($0) }
+        // Where it was thrown: the report shows that instead of the abort that follows.
+        let stack = exception.callStackReturnAddresses.map { $0.uint64Value }
+        stack.withUnsafeBufferPointer { lyrelog_crash_note_stack($0.baseAddress, Int32($0.count)) }
+        ExceptionNote.previous?(exception)
+    }
+
+    /// Lyrelog's handler in front of the one there was. Installing again (`start` after `stop`)
+    /// changes nothing: the handler before Lyrelog's must never become Lyrelog's own.
     static func install() {
-        previous = NSGetUncaughtExceptionHandler()
-        NSSetUncaughtExceptionHandler { exception in
-            let text = "\(exception.name.rawValue): \(exception.reason ?? "")"
-            text.withCString { lyrelog_crash_note($0) }
-            // Where it was thrown: the report shows that instead of the abort that follows.
-            let stack = exception.callStackReturnAddresses.map { $0.uint64Value }
-            stack.withUnsafeBufferPointer { lyrelog_crash_note_stack($0.baseAddress, Int32($0.count)) }
-            ExceptionNote.previous?(exception)
-        }
+        let current = NSGetUncaughtExceptionHandler()
+        if let current, unsafeBitCast(current, to: UnsafeRawPointer.self) == unsafeBitCast(handler, to: UnsafeRawPointer.self) { return }
+        previous = current
+        NSSetUncaughtExceptionHandler(handler)
     }
 }
 
@@ -165,3 +179,41 @@ extension Lyrelog {
     }
 }
 
+
+/// A crash the crash reporter caught: when, and its signal. MetricKit reports the same crash later
+/// (a launch or a day after): a MetricKit crash with the same signal within two hours of one is
+/// that one, and left out. Every other MetricKit crash is reported (one the reporter couldn't
+/// catch: it couldn't install, the app crashed before it had, the system ended the app).
+struct InProcessCrash: Equatable {
+    let time: Date
+    let signal: Int
+
+    static let window: TimeInterval = 2 * 3600
+
+    static func remember(_ crash: InProcessCrash, in file: URL, now: Date = Date()) {
+        var kept = read(file, now: now)
+        kept.append(crash)
+        let text = kept.suffix(50).map { "\(Int($0.time.timeIntervalSince1970)) \($0.signal)" }.joined(separator: "\n") + "\n"
+        try? Data(text.utf8).write(to: file, options: .atomic)
+    }
+
+    static func read(_ file: URL, now: Date = Date()) -> [InProcessCrash] {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: " ")
+            guard parts.count == 2, let seconds = Double(parts[0]), let signal = Int(parts[1]) else { return nil }
+            let crash = InProcessCrash(time: Date(timeIntervalSince1970: seconds), signal: signal)
+            return now.timeIntervalSince(crash.time) <= DiagnosticReport.maxAge ? crash : nil
+        }
+    }
+}
+
+extension DiagnosticReport {
+    /// The signal a report from the crash handler names.
+    static func signal(inReport report: String) -> Int? {
+        for line in report.split(separator: "\n") where line.hasPrefix("signal ") {
+            return Int(line.dropFirst("signal ".count))
+        }
+        return nil
+    }
+}

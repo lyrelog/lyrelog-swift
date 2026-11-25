@@ -11,11 +11,12 @@
 //           "note text" (optional) / "message text" (a Swift runtime failure's) / "thrown hex"
 //           (an uncaught exception's throw site, top first) / "frame hex" (top first), "lr hex" (the link register,
 //           after the first frame, when the frame chain doesn't start with it) ... / "end"
-// The previous handlers are restored and the signal raised again, so another reporter (Sentry,
+// The previous handler is called with the fault's own siginfo and context (forward), so another reporter (Sentry,
 // Crashlytics) and the system's own crash report still see the crash.
 
 #include "lyrelog_crash.h"
 
+#include <TargetConditionals.h>
 #include <dlfcn.h>
 #include <mach-o/getsect.h>
 #include <pthread.h>
@@ -204,19 +205,37 @@ static void restore(void) {
     }
 }
 
+// The signal handed to the handler that was there before Lyrelog's, with the fault's own siginfo
+// and context, as if Lyrelog's weren't there (another reporter, Sentry's or Crashlytics', sees
+// the faulting address and code); then the app ends. A fault returns to its instruction, which
+// faults again under the handler now in place (the system's: the app ends with its own crash
+// report); a signal that was sent (abort, kill) is sent again.
+static void forward(int signal, siginfo_t *info, void *context) {
+    restore();
+    for (size_t i = 0; i < SIGNAL_COUNT; i++) {
+        if (signals[i] != signal || !taken[i]) continue;
+        struct sigaction *before = &previous[i];
+        if (before->sa_flags & SA_SIGINFO) {
+            if (before->sa_sigaction != NULL) before->sa_sigaction(signal, info, context);
+        } else if (before->sa_handler != SIG_DFL && before->sa_handler != SIG_IGN && before->sa_handler != NULL) {
+            before->sa_handler(signal);
+        }
+        break;
+    }
+    if (signal == SIGABRT || info == NULL || info->si_code == SI_USER || info->si_code == SI_QUEUE) raise(signal);
+}
+
 static void handler(int signal, siginfo_t *info, void *context) {
     uint64_t self = 0;
     pthread_threadid_np(NULL, &self);
     uint64_t expected = 0;
     if (!atomic_compare_exchange_strong(&handling_thread, &expected, self)) {
         if (expected == self) { // a crash inside the handler: hand it on now
-            restore();
-            raise(signal);
+            forward(signal, info, context);
             return;
         }
         sleep(2); // another thread is writing its report: let it finish, then the app ends
-        restore();
-        raise(signal);
+        forward(signal, info, context);
         return;
     }
     int fd = report_fd;
@@ -272,8 +291,7 @@ static void handler(int signal, siginfo_t *info, void *context) {
         put_string(fd, "end\n");
         fsync(fd);
     }
-    restore();
-    raise(signal);
+    forward(signal, info, context);
 }
 
 // MARK: - Installing
@@ -298,9 +316,19 @@ void lyrelog_crash_already_reported(int seconds) {
     atomic_store(&reported_until, (int64_t)time(NULL) + seconds);
 }
 
+// watchOS and tvOS have no sigaltstack: there a stack overflow isn't reported by this handler
+// (MetricKit isn't there either), every other crash is.
+#if TARGET_OS_WATCH || TARGET_OS_TV
+#define LYRELOG_ALTERNATE_STACK 0
+#else
+#define LYRELOG_ALTERNATE_STACK 1
+#endif
+
 void lyrelog_crash_alternate_stack(void) {
+#if LYRELOG_ALTERNATE_STACK
     stack_t stack = {.ss_sp = main_alternate_stack, .ss_size = sizeof(main_alternate_stack), .ss_flags = 0};
     sigaltstack(&stack, NULL);
+#endif
 }
 
 bool lyrelog_crash_install(const char *report_path, const char *images_path) {
@@ -317,8 +345,10 @@ bool lyrelog_crash_install(const char *report_path, const char *images_path) {
     // Every image already loaded is reported at once, then each new one.
     _dyld_register_func_for_add_image(image_added);
 
+#if LYRELOG_ALTERNATE_STACK
     stack_t stack = {.ss_sp = alternate_stack, .ss_size = sizeof(alternate_stack), .ss_flags = 0};
     sigaltstack(&stack, NULL); // a stack overflow can still be reported
+#endif
     struct sigaction action;
     memset(&action, 0, sizeof(action));
     action.sa_sigaction = handler;
